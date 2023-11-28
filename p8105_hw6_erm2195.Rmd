@@ -4,17 +4,40 @@ output: github_document
 date: "2023-11-24"
 ---
 
-## Library Setup
-Loading the `tidyverse` library for later use.
+## Library and Document-Wide Settings Setup
+Loading libraries and establishing some document-wide settings for later use.
 
-```{r setup}
+!!! CHECK THAT DON'T HAVE UNNECESSARY LIBRARIES !!!!!
+
+```{r libraries}
 library(tidyverse)
 library(modelr)
 library(mgcv)
-
-set.seed(1)
+library(viridis)
 ```
 
+```{r setup, include = FALSE}
+set.seed(1)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	fig.width = 8, 
+  fig.height = 6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+```
 
 # Problem 2
 
@@ -36,41 +59,16 @@ weather =
   select(name, id, everything())
 ```
 
-Next, I'm 
+## Generating Linear Models Then Calculating R-Square and Log(Beta_1*Beta_2)
 
-We’ll focus on a simple linear regression with tmax as the response with tmin and prcp as the predictors, and are interested in the distribution of two quantities estimated from these data:
-
-r̂ 2
-log(β̂ 1∗β̂ 2)
-
-```{r}
-
-log_prod_results = 
-  lm(tmax ~ tmin + prcp, data = weather) |> 
-  broom::tidy() |> 
-  slice(-1) |> 
-  summarize(
-    log_product = log(estimate[1]) + log(estimate[2])
-  )
-  
-r_square_results = 
-  lm(tmax ~ tmin + prcp, data = weather) |> 
-  broom::glance() |> 
-  select(r.squared) |> 
-  janitor::clean_names()
-
-strap_results = 
-  bind_cols(log_prod_results, r_square_results)
-
-```
-
+Next, I'm generating 5000 bootstrap samples and fitting a linear regression model to each, using `tmax` as the response with `tmin` and `prcp` as the predictors. Then, with the linear model generated for each sample, I'm pulling out only the `r_squared` and `log(beta_1*beta_2)` values.
 
 !!!! IS THERE A BETTER WAY TO CREATE THE LOG PRODUCT VARIABLE AND ALSO KEEP THE R-SQUARED VARIABLE?
 
 ```{r}
 boot_straps = 
   weather |> 
-  modelr::bootstrap(n = 10) |> 
+  modelr::bootstrap(n = 5000) |> 
   mutate(
     models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df)),
     term_results = map(models, broom::tidy),
@@ -91,7 +89,42 @@ boot_straps =
 
 ```
 
+## Plotting the Distribution of the Estimates
 
+```{r}
+boot_straps |> 
+  ggplot(aes(x = r_squared)) +
+  geom_density() + 
+  labs(
+    title = "Distribution of R-Squared Values",
+    x = "R-Squared",
+    y = "Density"
+  )
+
+boot_straps |> 
+  ggplot(aes(x = log_product)) +
+  geom_density() + 
+  labs(
+    title = "Distribution of Log(β1*β2)",
+    x = "Log(β1*β2)",
+    y = "Density"
+  )
+
+```
+
+The distribution of the r-squared value is slightly left skewed, with the most common r-squared value landing at just above 0.92. The vast majority of r-squared values appear to fall between approximately 0.88 and 0.95. As a value of 1 would indicate that 100% of the variance in maximum temperature is explained by the model, this distribution of r-squared values suggests that the model using  minimum temperature and precipitation does a fairly solid job of predicting the maximum temperature. 
+
+!!!!!! DESCRIBE THE LOG(B1*B2) GRAPH IN WORDS
+ALSO TALK ABOUT THE PROPORTION OF SAMPLES THAT HAD AN NAN VALUE, AND THAT THE DISTRIBUTION DOESN'T INCLUDE THOSE NAs
+ALSO UPDATE R-HAT AND BETA VALUES TO USE THE ACTUAL SYMBOLS (GOOGLE HOW TO DO THIS IN R MARKDOWN)
+
+## Generating 95% Confidence Intervals
+
+I can use the estimates across my 5000 bootstrap samples to construct a 95% confidence interval for r-squared and log(beta_1*beta_2). To do so, I need to identify the upper and lower 2.5% of the distribution for each across all of the samples. 
+
+95% CI for r-squared: (`r boot_straps |> pull(r_squared) |> quantile(0.025, na.rm = TRUE) |> round(digits = 4)`, `r boot_straps |> pull(r_squared) |> quantile(0.975, na.rm = TRUE) |> round(digits = 4)`).  
+95% CI for log(beta_1*beta_2): (`r boot_straps |> pull(log_product) |> quantile(0.025, na.rm = TRUE) |> round(digits = 4)`, `r boot_straps |> pull(log_product) |> quantile(0.975, na.rm = TRUE) |> round(digits = 4)`). 
+ 
 
 # Problem 3
 
@@ -101,8 +134,6 @@ Loading and cleaning the `birthweight` dataset in preparation for regression ana
 
 * Converting the `babysex`, `malform`, `frace`, and `mrace` variables to factors
 * Although the `pnumlbw` and `pnumgsa` variables both have a value of 0 for all observations, not dropping them as I'm not certain that this actually indicates missingness as opposed to an accurate value of 0
-* Adding a binary `lbw` (low birthweight) with Yes/No values based on the baby's birthweight (the `bwt` variable), using the [Cleveland Clinic's cutoff value](https://my.clevelandclinic.org/health/diseases/24980-low-birth-weight) of 2,500 grams 
-
 
 ```{r}
 
@@ -132,15 +163,26 @@ birthweight =
                                  8 ~ "Other",
                                  9 ~ "")),
     frace = fct_infreq(frace),
-    mrace = fct_infreq(mrace),
-    lbw = as.factor(if_else(bwt < 2500, "Yes", "No"))
-  )
+    mrace = fct_infreq(mrace)
+  ) |> 
+  select(bwt, everything())
 
 ```
 
+```{r}
+birthweight |> 
+  group_by(mrace) |> 
+  summarize(
+    count = n()
+  )
+```
+
+
 ## Fitting a Birthweight Linear Regression Model
 
-Now, I'd like to build a linear regression model for birthweight. Based on information from the Cleveland Clinic, the following risk factors are likely predictors of birthweight: 
+### Model 1: All Predictors
+
+Based on information from the [Cleveland Clinic](https://my.clevelandclinic.org/health/diseases/24980-low-birth-weight), the following risk factors are likely predictors of birthweight: 
 
 * Preterm birth (variable: `gaweeks`)
 * Being younger than 18 or older than 34 (variable: `momage`)
@@ -148,60 +190,134 @@ Now, I'd like to build a linear regression model for birthweight. Based on infor
 * Not gaining enough weight during pregnancy (variable: `wtgain`)
 * Being Black (variable: `mrace`)
 
-First, I'll build an initial model using these hypothesized factors, then tidy the results and save to a dataframe called `fit_1`. 
+As a result, they will likely be in my final linear regression model. But first, I'll create an initial model with all of my non-birthweight variables as predictors. I'll then create a plot of the residuals vs. predicted values.
 
 ```{r}
-bwt_fit = 
-  lm(bwt ~ gaweeks + momage + smoken + wtgain + mrace, data = birthweight) 
+fit_1 = 
+  lm(
+    bwt ~ babysex + bhead + blength + fincome + frace + gaweeks + malform 
+    + menarche + mheight + momage + mrace + parity + pnumlbw + pnumsga + ppbmi 
+    + ppwt + smoken + wtgain, 
+    data = birthweight
+  )
 
-bwt_fit |> 
+fit_1 |> 
   broom::tidy() |> 
   mutate(
-    term = str_replace(term, "^mrace", "Race: ")
+    term = str_replace(term, "^mrace", "Mother's Race: "),
+    term = str_replace(term, "^frace", "Father's Race: "),
+    term = str_replace(term, "malform", "Malformation: "),
+    term = str_replace(term, "babysex", "Baby Sex: ")
   ) |> 
-  select(term, estimate, p.value) |> 
   knitr::kable(digits = 3)
 
-```
-
-All of the p-values for the included covariates are <0.05, indicating statistical significance. 
-
-## Examining Residuals
-
-To check the fit of the model, I'll now examine the residuals
-
-!!!!!!! WHAT SHAPE SHOULD THE RESIDUALS MAKE? !!!!!!!!!
-
-```{r}
 
 birthweight |> 
-  modelr::add_residuals(bwt_fit) |> 
-  ggplot(aes(x = gaweeks, y = resid)) + 
-  geom_point() + 
-  geom_violin(aes(x = momage, y = resid))
-
-```
-
-## Bootstrapping
-
-```{r}
-birthweight |> 
-  modelr::bootstrap(n = 1000) |> 
+  modelr::add_residuals(fit_1) |> 
   mutate(
-    models = map(strap, \(df) lm(bwt ~ gaweeks + momage + smoken + wtgain + mrace, data = df)),
-    results = map(models, broom::tidy)
+    predicted = predict(fit_1)
   ) |> 
-  select(results) |> 
-  unnest(results) |> 
-  group_by(term) |> 
-  ggplot(aes(x = estimate)) + geom_density() + facet_grid(. ~ term)
+  filter(resid < 1000) |> 
+  ggplot(aes(x = predicted, y = resid)) + 
+  geom_point()
 
+```
+  
+From the residuals plot, we can see that while the residuals are generally randomly scattered around zero for predicted birthweight values above approximately 2000 grams, the residuals for birthweights lower than 2000 grams display a problematically-linear distribution. 
+
+From the table displaying the beta estimates for the predictors, we can see that the the indicator with the highest p-value is Father's Race: Other, indicating that it's an insignificant predictor of birthweight. In fact, the p-values for all father's race categories, compared to the reference race, are quite large and insignificant. Additionally, because the `pnumlbw` and `pnumsga` variables have values of 0 for all observations, they have incalculable beta estimates and p-values. So, for my next model, I will drop these 3 variables. 
+
+### Model 2: Dropping `frace`, `pnumlbw`, `pnumsga`, and Dichotomizing Mother's Race
+
+I noticed in the output table from the original model that there's a clear division in the significance of mother's race, with Black having a significant p-value of 0.001, while Puerto Rican has a p-value of 0.211 and Asian has a p-value of 0.204. Because of this, I will recode mother's race into a dichotomous variable of Black/Other Races and use this dichotomized version going forward.
+
+```{r}
+birthweight_updated = 
+  birthweight |> 
+  mutate(
+    mrace = as.factor(if_else(as.character(mrace) == "Black", "Black", "Other")),
+    mrace = fct_infreq(mrace)
+  )
+```
+
+Now, as stated above, I will drop `frace`, `pnumlbw`, and `pnumsga` from this model.
+
+```{r}
+fit_2 = 
+  lm(
+    bwt ~ babysex + bhead + blength + fincome + gaweeks + malform + menarche 
+    + mheight + momage + mrace + parity + ppbmi + ppwt + smoken + wtgain, 
+    data = birthweight_updated
+  )
+
+fit_2 |> 
+  broom::tidy() |> 
+  mutate(
+    term = str_replace(term, "^mrace", "Mother's Race: "),
+    term = str_replace(term, "malform", "Malformation: "),
+    term = str_replace(term, "babysex", "Baby Sex: ")
+  ) |> 
+  knitr::kable(digits = 3)
+
+birthweight_updated |> 
+  modelr::add_residuals(fit_2) |> 
+  mutate(
+    predicted = predict(fit_2)
+  ) |> 
+  ggplot(aes(x = predicted, y = resid)) + 
+  geom_point()
+```
+
+From the residuals plot, we can see that it looks quite similar to the prior model, with residuals being randomly scattered around 0 except for predicted birthweights of less than 2000 grams. From looking at the p-values of the predictor terms, it appears that `ppwt`, `malform`, and `ppbmi` are now the least significant predictors of birthweight, so I will remove those variables from the next model.
+
+### Model 3: Dropping `ppwt`, `malform`, `ppbmi`
+
+Now dropping `ppwt`, `malform`, and `ppbmi` from the model.
+
+```{r}
+fit_3 = 
+  lm(
+    bwt ~ babysex + bhead + blength + fincome + gaweeks + menarche 
+    + mheight + momage + mrace + parity + smoken + wtgain, 
+    data = birthweight_updated
+  )
+
+fit_3 |> 
+  broom::tidy() |> 
+  mutate(
+    term = str_replace(term, "^mrace", "Mother's Race: "),
+    term = str_replace(term, "babysex", "Baby Sex: ")
+  ) |> 
+  knitr::kable(digits = 3)
+
+birthweight_updated |> 
+  modelr::add_residuals(fit_3) |> 
+  mutate(
+    predicted = predict(fit_3)
+  ) |> 
+  ggplot(aes(x = predicted, y = resid)) + 
+  geom_point()
 ```
 
 
 
 
+
+
+
+
+
+
+
+Start with the full model (with every predictor), then incrementally drop the least significant predictor. After each drop, rerun the new slimmed down model and look at the plot of the residuals.
 
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+
+
+`gaweeks`
+`momage`
+`smoken`
+`wtgain`
+`mrace`
 
 
