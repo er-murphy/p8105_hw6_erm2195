@@ -164,7 +164,7 @@ boot_straps =
 
 ## Plotting Distributions of the Estimates
 
-To get a sense of what the distribution of $r^{2}$ and log($\hat{\beta}_1$*$\hat{\beta}_2$) look like across the entire collection of our bootstrapped samples, I'm creating a density plot for each.
+To get a sense of what the distribution of $r^{2}$ and log($\beta_1$*$\beta_2$) look like across the entire collection of our bootstrapped samples, I'm creating a density plot for each.
 
 ```{r}
 boot_straps |> 
@@ -189,7 +189,7 @@ boot_straps |>
 
 The distribution of $r^{2}$ values is slightly left skewed, with the most common value landing at just above 0.92. The vast majority of $r^{2}$ values appear to fall between approximately 0.88 and 0.95. As a value of 1 would indicate that 100% of the variance in maximum temperature is explained by the model, this distribution of $r^{2}$ values suggests that the model using  minimum temperature and precipitation does a fairly solid job of predicting the maximum temperature.
 
-In comparison, the distribution of the log($\beta_1$*$\beta_2$) values is much more noticeably left skewed, with a significant trail extending out to the left. The most common values for log($\beta_1$*$\beta_2$) seem to be between -6 and -5, although some values are as low as -12. It's important note that this plot only includes samples with a calculable numeric value for log($\beta_1$*$\beta_2$). As more than 2/3 (`r (boot_straps |> filter(is.na(log_product)) |> nrow()) / (boot_straps |> nrow())`) of the bootstrapped samples had NA values for log($\beta_1$*$\beta_2$) (because either its $\beta_1$ or $\beta_2$ was negative), this means that the distribution plot leaves out more than half of all of the samples. 
+In comparison, the distribution of the log($\beta_1$\*$\beta_2$) values is much more noticeably left skewed, with a significant trail extending out to the left. The most common values for log($\beta_1$\*$\beta_2$) seem to be between -6 and -5, although some values are as low as -12. It's important note that this plot only includes samples with a calculable numeric value for log($\beta_1$\*$\beta_2$). As more than 2/3 (`r (boot_straps |> filter(is.na(log_product)) |> nrow()) / (boot_straps |> nrow())`) of the bootstrapped samples had NA values for log($\beta_1$*$\beta_2$) (because either its $\beta_1$ or $\beta_2$ was negative), this means that the distribution plot leaves out more than half of all of the samples. 
 
 ## Generating 95% Confidence Intervals
 
